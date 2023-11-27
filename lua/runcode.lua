@@ -44,7 +44,7 @@ local log_levels = { "trace", "debug", "info", "warn", "error", "fatal" }
 local function set_log_level()
 	-- setup log level with vim.g
 	-- vim.g.runner_log_level = "debug"
-	local log_level = vim.env.RUNNER_LOG or vim.g.runner_log_level
+	local log_level = vim.env.RUNCODE_LOG_LEVEL or vim.g.runcode_log_level
 
 	for _, level in pairs(log_levels) do
 		if level == log_level then
@@ -58,7 +58,7 @@ end
 local logger = {}
 
 logger = log.new({
-	plugin = "runner.log", -- will be saved to .cache/nvim/runner.log
+	plugin = "runcode.log", -- will be saved to .cache/nvim/runner.log
 	level = set_log_level(),
 })
 
