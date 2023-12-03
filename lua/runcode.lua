@@ -4,6 +4,7 @@ local log = require("plenary.log")
 
 
 -- Find project root
+-- This might be useful to automatically detect e.g. the right python intepreter
 Find_root = {}
 if package.loaded['lspconfig'] then
 	local util = require("lspconfig/util")
@@ -36,6 +37,7 @@ if package.loaded['lspconfig'] then
 			util.path.dirname(fname)
 	end
 end
+
 
 
 -- Setup logging
@@ -126,21 +128,20 @@ local function set_popup(ui_config)
 end
 
 
-local function close_popup(popup, jobId)
+local function close_popup(popup, jobId, closeKeys)
 	-- close popup key bindings
-	popup:map("n", "q", function()
-		vim.fn.jobstop(jobId)
-		popup:unmount()
-	end, { noremap = true })
-	popup:map("n", "<C-c>", function()
-		vim.fn.jobstop(jobId)
-		popup:unmount()
-	end, { noremap = true })
+	for _, key in ipairs(closeKeys) do
+		popup:map("n", key, function()
+			vim.fn.jobstop(jobId)
+			popup:unmount()
+		end, { noremap = true })
+	end
 end
 
 
 
--- copied from plenary.nvim (https://github.com/nvim-lua/plenary.nvim)
+-- Detect file type automatically
+-- kudos to plenary.nvim (https://github.com/nvim-lua/plenary.nvim)
 local filetypes = {
 	py = "python",
 	js = "javascript",
@@ -175,14 +176,9 @@ end
 
 function M:run()
 	local u_config = self.get_config().user_config
+	u_config.before_run()
+
 	local popup = set_popup(u_config.ui)
-
-	-- vim.api.nvim_set_option_value("number", true, { scope = "local" })
-	-- vim.api.nvim_set_option_value("textwidth", 0, { scope = "local" })
-	-- vim.api.nvim_set_option_value("wrapmargin", 0, { scope = "local" })
-	-- vim.api.nvim_set_option_value("wrap", true, { scope = "local" })
-	vim.api.nvim_set_option_value("linebreak", true, { scope = "local" })
-
 
 	-- map the extension of <filename> to correct command from configurations
 	local filename = vim.api.nvim_buf_get_name(0)
@@ -194,6 +190,8 @@ function M:run()
 
 	-- mount/open the component
 	popup:mount()
+	vim.api.nvim_set_option_value("wrap", true, { win = popup.winid })
+	vim.api.nvim_set_option_value("number", true, { win = popup.winid })
 
 	local job_id = vim.fn.jobstart({ table.unpack(cmd_parts) }, {
 		stdout_buffered = true,
@@ -216,7 +214,7 @@ function M:run()
 		self.state.running = true
 		self.state.job_id = job_id
 		self.state.popup = popup
-		close_popup(popup, job_id)
+		close_popup(popup, job_id, u_config.close_keys)
 		logger.debug("Job running", job_id)
 	else
 		logger.warn("Job failed", job_id)
@@ -238,7 +236,7 @@ function M:continue()
 	self.state.popup:show()
 end
 
-function M:setup(cfg)
+function M.setup(self, cfg)
 	logger.trace("setup(): Setting up...")
 
 	-- set program run state
@@ -265,7 +263,7 @@ function M:setup(cfg)
 		before_run = function()
 			vim.cmd(":w")
 		end,
-		close_keys = { "<ESC>", "C-c" }, -- TODO
+		close_keys = { "q", "<C-c>" },
 		run_keys = {
 			run = "<C-x>",
 			run_root = "C-p>" -- TODO
@@ -276,11 +274,7 @@ function M:setup(cfg)
 			python = "python -u",
 			go = "go run",
 			sh = "sh"
-		},
-		-- project specific configuration (TODO)
-		project = {
-			path = ""
-		},
+		}
 	}
 
 	config.user_config = vim.tbl_deep_extend('force', defaults, cfg or {})
