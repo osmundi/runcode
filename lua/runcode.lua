@@ -3,6 +3,7 @@ local event = require("nui.utils.autocmd").event
 local log = require("plenary.log")
 
 
+
 -- Find project root
 -- This might be useful to automatically detect e.g. the right python intepreter
 Find_root = {}
@@ -174,19 +175,25 @@ local detect_from_extension = function(filepath)
 	return ""
 end
 
-function M:run()
+function M:run(tmpfile)
 	local u_config = self.get_config().user_config
 	u_config.before_run()
 
 	local popup = set_popup(u_config.ui)
 
-	-- map the extension of <filename> to correct command from configurations
 	local filename = vim.api.nvim_buf_get_name(0)
+
+	-- map the extension of <filename> to correct command from configurations
 	local cmd_parts = {}
 	for token in string.gmatch(u_config.commands[detect_from_extension(filename)], "[^%s]+") do
 		table.insert(cmd_parts, token)
 	end
-	table.insert(cmd_parts, filename)
+
+	if tmpfile then
+		table.insert(cmd_parts, tmpfile)
+	else
+		table.insert(cmd_parts, filename)
+	end
 
 	-- mount/open the component
 	popup:mount()
@@ -215,7 +222,7 @@ function M:run()
 		self.state.job_id = job_id
 		self.state.popup = popup
 		close_popup(popup, job_id, u_config.close_keys)
-		logger.debug("Job running", job_id)
+		logger.debug("Job running:", job_id)
 	else
 		logger.warn("Job failed", job_id)
 	end
@@ -239,7 +246,7 @@ end
 function M.setup(self, cfg)
 	logger.trace("setup(): Setting up...")
 
-	-- set program run state
+	-- initialize program state
 	local state = {
 		popup = {},
 		running = false,
@@ -266,11 +273,11 @@ function M.setup(self, cfg)
 		close_keys = { "q", "<C-c>" },
 		run_keys = {
 			run = "<C-x>",
-			run_root = "C-p>" -- TODO
+			run_root = "<C-p>" -- TODO
 		},
 		commands = {
 			markdown = "glow %",
-			javascript = "deno --quiet run",
+			javascript = "deno run --allow-net --allow-run",
 			python = "python -u",
 			go = "go run",
 			sh = "sh"
@@ -279,6 +286,7 @@ function M.setup(self, cfg)
 
 	config.user_config = vim.tbl_deep_extend('force', defaults, cfg or {})
 
+	-- save config to global variable
 	RunnerConfig = config
 
 	-- set keymaps
@@ -289,6 +297,15 @@ function M.setup(self, cfg)
 			M:halt()
 		else
 			M:run()
+		end
+	end)
+	vim.keymap.set('v', '<C-x>', function()
+		if self.state.background then
+			M:continue()
+		elseif self.state.running then
+			M:halt()
+		else
+			M:run(M.get_visual_selection())
 		end
 	end)
 
@@ -306,11 +323,50 @@ function M.print_config()
 	print(vim.inspect(RunnerConfig))
 end
 
+-- TODO (handle this in plugin initialization e.g. with Lazy)
 M:setup({
 	commands = {
 		python = "python3 -u",
 	}
 })
+
+function M.get_visual_selection()
+	local strip_ws = false
+	local strip_len
+	--
+	-- exit visual mode in order to access the last selection
+	local keys = vim.api.nvim_replace_termcodes('<ESC>', true, false, true)
+	vim.api.nvim_feedkeys(keys, 'x', false)
+
+	-- get the visual selection
+	local line_start = vim.api.nvim_buf_get_mark(0, "<")
+	local line_end = vim.api.nvim_buf_get_mark(0, ">")
+	local lines = vim.api.nvim_buf_get_lines(0, line_start[1] - 1, line_end[1], false)
+
+	-- write the selection to temporary file (/tmp/nvim.user/...)
+	local tmpfile = vim.fn.tempname()
+	file = io.open(tmpfile, "w")
+	io.output(file)
+	for i, v in ipairs(lines) do
+		-- indent code correctly (by removing unnecessary whitespace from the start of rows)
+		if i == 1 then
+			_, strip_len = string.find(v, '^%s*')
+			if strip_len > 0 then
+				strip_ws = true
+			end
+		end
+
+		if strip_ws then
+			v = string.gsub(v, "^" .. string.rep("%s", strip_len), "")
+		end
+
+		io.write(v)
+		io.write("\n")
+	end
+	io.close(file)
+
+	return tmpfile
+end
 
 -- logger.debug("Complete config:", M.get_config())
 
