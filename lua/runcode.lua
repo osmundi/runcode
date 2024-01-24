@@ -147,7 +147,8 @@ local filetypes = {
 	py = "python",
 	js = "javascript",
 	ts = "javascript",
-	go = "go"
+	go = "go",
+	md = "markdown"
 }
 
 local parts = function(filename)
@@ -181,30 +182,32 @@ function M:run(tmpfile)
 
 	local popup = set_popup(u_config.ui)
 
-	local filename = vim.api.nvim_buf_get_name(0)
-
-	-- map the extension of <filename> to correct command from configurations
-	local cmd_parts = {}
-	for token in string.gmatch(u_config.commands[detect_from_extension(filename)], "[^%s]+") do
-		table.insert(cmd_parts, token)
-	end
+	local runfile = "%"
+	local current_buffer = vim.api.nvim_buf_get_name(0)
 
 	if tmpfile then
-		table.insert(cmd_parts, tmpfile)
+		runfile = tmpfile
 	else
-		table.insert(cmd_parts, filename)
+		runfile = current_buffer
 	end
+
+	local cmd = u_config.commands[detect_from_extension(current_buffer)]
 
 	-- mount/open the component
 	popup:mount()
+
+	-- set popup specific options
 	vim.api.nvim_set_option_value("wrap", true, { win = popup.winid })
 	vim.api.nvim_set_option_value("number", true, { win = popup.winid })
 
-	local job_id = vim.fn.jobstart({ table.unpack(cmd_parts) }, {
-		stdout_buffered = true,
+	vim.api.nvim_buf_set_lines(popup.bufnr, 0, 0, false, { "--- process started ----" })
+
+	local job_id = vim.fn.jobstart(cmd .. " " .. runfile, {
+		stdout_buffered = false,
 		on_stdout = function(_, data)
 			if data then
-				vim.api.nvim_buf_set_lines(popup.bufnr, 0, 0, false, data)
+				vim.api.nvim_buf_set_lines(popup.bufnr, -1, -1, false, data)
+				--vim.api.nvim_buf_set_lines(popup.bufnr, 0, 0, false, data)
 			end
 		end,
 		on_stderr = function(_, data)
@@ -214,6 +217,9 @@ function M:run(tmpfile)
 				end
 				vim.api.nvim_buf_set_lines(popup.bufnr, -1, -1, false, map(color_error, data))
 			end
+		end,
+		on_exit = function()
+			vim.api.nvim_buf_set_lines(popup.bufnr, -1, -1, false, { "--- process exited ---" })
 		end
 	})
 
@@ -276,7 +282,7 @@ function M.setup(self, cfg)
 			run_root = "<C-p>" -- TODO
 		},
 		commands = {
-			markdown = "glow %",
+			markdown = "glow",
 			javascript = "deno run --allow-net --allow-run",
 			python = "python -u",
 			go = "go run",
